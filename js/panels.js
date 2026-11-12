@@ -1,6 +1,6 @@
 /* ============ paneles: slides, pasos, herramientas y propiedades ============ */
 import { $, $$, esc, clone, uid, readPrefs, writePrefs } from './util.js';
-import { app, S, hooks, snap, save, changed, removeIds, defaultProject, setProject } from './state.js';
+import { app, S, hooks, snap, save, changed, removeIds, defaultProject, setProject, blankSlide } from './state.js';
 import { autoLinks, hasLink } from './formations.js';
 import { linksFor } from './systems.js';
 import { initSystemsUI } from './systems-ui.js';
@@ -274,8 +274,7 @@ export function initPanels() {
 
   // slides
   $('#sAdd').onclick = () => {
-    snap(); const cur = S(), s = clone(cur);
-    Object.assign(s, { id: uid(), kicker: '', title: 'NUEVO SLIDE', accent: '', subtitle: '', notes: '', shapes: [], camera: 'full', steps: [clone(cur.steps[cur.steps.length - 1])] });
+    snap(); const s = blankSlide();   // slide nuevo = cancha vacía
     app.P.slides.splice(app.cur + 1, 0, s); app.cur++; app.step = 0; app.sel.clear(); hooks.renderAll(); save();
   };
   $('#sDup').onclick = () => { snap(); const s = clone(S()); s.id = uid(); app.P.slides.splice(app.cur + 1, 0, s); app.cur++; app.step = 0; app.sel.clear(); hooks.renderAll(); save(); toast('Slide duplicado'); };

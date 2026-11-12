@@ -1,6 +1,5 @@
 /* ============ estado del proyecto, persistencia e historial ============ */
 import { W, L, M, STORE, STORE_V1, VERSION, uid, clone } from './util.js';
-import { applyFormation, autoLinks } from './formations.js';
 
 /** Estado global mutable. `P` es el proyecto (formato JSON compatible con la versión original). */
 export const app = {
@@ -27,29 +26,8 @@ export function blankSlide() {
 }
 
 export function defaultProject() {
-  const s1 = blankSlide();
-  Object.assign(s1, { kicker: 'NO ES SOLO UNA FORMACIÓN', title: 'ES UN SISTEMA', accent: 'SISTEMA', subtitle: 'ONCE JUGADORAS CONECTADAS', camera: 'full' });
-  applyFormation(s1, 'home', '433'); autoLinks(s1);
-
-  const s2 = blankSlide();
-  Object.assign(s2, { kicker: 'ATRÁS', title: 'LA LÍNEA DE 4', accent: '4', subtitle: 'SE MUEVE JUNTA HACIA LA BOCHA', camera: 'full' });   // todos los slides por defecto en 'full' (misma cancha)
-  applyFormation(s2, 'home', '433'); applyFormation(s2, 'away', '433');
-  const H = l => s2.ents.find(e => e.team === 'home' && e.label === l);
-  const A = r => s2.ents.find(e => e.team === 'away' && e.role === r);
-  ['LI', 'CI', 'CD', 'LD'].forEach(l => H(l).hl = true);
-  s2.links = [[H('LI').id, H('CI').id], [H('CI').id, H('CD').id], [H('CD').id, H('LD').id]];
-  const ball = { id: uid(), type: 'ball', hl: false };
-  s2.ents.push(ball);
-  const st0 = s2.steps[0];
-  st0[H('LI').id] = [10, 72]; st0[H('CI').id] = [21, 74]; st0[H('CD').id] = [34, 74]; st0[H('LD').id] = [45, 72];
-  const car = A('PI').id; st0[car] = [33, 56]; st0[ball.id] = [34.6, 57.6];
-  const st1 = clone(st0);
-  s2.ents.filter(e => e.team === 'home' && !e.hl).forEach(e => st1[e.id] = [Math.min(W - 3, st1[e.id][0] + 5), st1[e.id][1] + 1]);
-  st1[H('LI').id] = [19, 74]; st1[H('CI').id] = [30, 74.5]; st1[H('CD').id] = [40, 70]; st1[H('LD').id] = [47.5, 64];
-  st1[car] = [47, 59]; st1[ball.id] = [48.3, 61];
-  s2.steps.push(st1);
-  s2.notes = 'La línea de 4 bascula hacia el lado de la bocha manteniendo distancias cortas.';
-  return { version: VERSION, showTexts: false, showLinks: false, handle: '@MICLUB', homeColor: '#c8323c', awayColor: '#8e8e93', slides: [s1, s2] };
+  // siempre arranca con la cancha vacía
+  return { version: VERSION, showTexts: false, showLinks: false, handle: '@MICLUB', homeColor: '#c8323c', awayColor: '#8e8e93', slides: [blankSlide()] };
 }
 
 /* ---------- normalización / compatibilidad ---------- */

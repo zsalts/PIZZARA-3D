@@ -18,7 +18,7 @@
 /* Versión de la app: SUBILA cada vez que cambies archivos de js/ o css/ para que el navegador no use copias viejas
    en caché (python -m http.server no manda no-cache). Es el único lugar donde está la versión: el import map de abajo
    agrega ?v=… a TODOS los módulos (también a los imports relativos entre módulos) y a la hoja de estilos. */
-window.APP_VERSION = '15';
+window.APP_VERSION = '16';
 (() => {
   const v = window.APP_VERSION;
   const mods = ['main', 'util', 'formations', 'systems', 'systems-ui', 'state', 'cancha', 'editor2d', 'visor3d', 'export', 'ui', 'panels', 'config', 'nube'];
