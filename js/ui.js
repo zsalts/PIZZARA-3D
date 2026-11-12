@@ -3,12 +3,19 @@ import { $, THEME_KEY } from './util.js';
 import { hooks } from './state.js';
 
 /* ---------- toasts (reemplazan a alert) ---------- */
-export function toast(msg, type = 'info', ms = 3200) {
+/** `action` opcional: { label, run } agrega un botón (por ejemplo "Deshacer"). */
+export function toast(msg, type = 'info', ms = 3200, action = null) {
   const box = $('#toasts');
   const t = document.createElement('div');
   t.className = `toast ${type}`;
   t.setAttribute('role', type === 'error' ? 'alert' : 'status');
   t.textContent = msg;
+  if (action) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'tact'; b.textContent = action.label;
+    b.onclick = e => { e.stopPropagation(); clearTimeout(tm); kill(); action.run(); };
+    t.append(' ', b);
+  }
   box.append(t);
   requestAnimationFrame(() => t.classList.add('in'));
   const kill = () => { t.classList.remove('in'); setTimeout(() => t.remove(), 250); };
@@ -38,16 +45,28 @@ export function confirmDialog(msg, { ok = 'Aceptar', danger = false } = {}) {
   return new Promise(res => d.addEventListener('close', () => res(d.returnValue === 'ok'), { once: true }));
 }
 
+/** Pide un texto (reemplaza a prompt). Devuelve Promise<string|null>. */
+export function promptDialog(msg, value = '') {
+  const d = $('#dlgPrompt'), inp = $('#prIn');
+  $('#prMsg').textContent = msg; inp.value = value;
+  d.returnValue = '';
+  d.showModal();
+  inp.focus(); inp.select?.();
+  return new Promise(res => d.addEventListener('close', () => res(d.returnValue === 'ok' ? inp.value.trim() : null), { once: true }));
+}
+/* botones "Cancelar" de los diálogos con campos de texto: son type=button para que Enter confirme */
+document.addEventListener('click', e => { const b = e.target.closest?.('.dlgCancel'); if (b) b.closest('dialog')?.close('cancel'); });
+
 /* ---------- tema claro / oscuro / automático ---------- */
 const THEMES = ['auto', 'light', 'dark'];
 const THEME_TXT = { auto: 'Tema: automático', light: 'Tema: claro', dark: 'Tema: oscuro' };
-const THEME_ICON = { auto: '◐', light: '☀', dark: '☾' };
 let theme = 'auto';
 function applyTheme() {
   const root = document.documentElement;
   if (theme === 'auto') delete root.dataset.theme; else root.dataset.theme = theme;
   const b = $('#bTheme');
-  if (b) { b.textContent = THEME_ICON[theme]; b.title = THEME_TXT[theme]; b.setAttribute('aria-label', THEME_TXT[theme]); }
+  if (b) { b.title = THEME_TXT[theme]; b.setAttribute('aria-label', THEME_TXT[theme]); b.dataset.theme = theme; }
+  const m = $('#mTheme span'); if (m) m.textContent = THEME_TXT[theme];
   hooks.draw();
 }
 export function initTheme() {

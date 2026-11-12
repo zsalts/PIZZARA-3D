@@ -1,6 +1,6 @@
 /* ============ editor 2D: interacción sobre la cancha ============ */
 import { W, L, clamp, uid, clone, readPrefs, writePrefs } from './util.js';
-import { app, S, hooks, snap, changed, addEnt, removeIds, nextLabel, FIELD_MIN, FIELD_MAX } from './state.js';
+import { app, S, hooks, snap, unsnap, changed, addEnt, removeIds, nextLabel, FIELD_MIN, FIELD_MAX } from './state.js';
 import { hasLink } from './formations.js';
 import { drawScene2D, shapeBox } from './cancha.js';
 
@@ -49,9 +49,9 @@ export function draw() {
 /* ---------- hit testing ---------- */
 const toField = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left - lay.ox) / lay.sc, (e.clientY - r.top - lay.oy) / lay.sc]; };
 
-function hitEnt(m) {
+function hitEnt(m, touch = false) {
   const s = S(), pos = s.steps[app.step];
-  const rad = Math.max(2.2, 10 / lay.sc);
+  const rad = Math.max(touch ? 2.6 : 2.2, (touch ? 22 : 10) / lay.sc);   // con el dedo, área de toque ≈ 44 px
   const ord = [...s.ents].sort((a, b) => (b.type === 'ball') - (a.type === 'ball'));
   for (const e of ord) {
     const p = pos[e.id]; if (!p) continue;
@@ -64,12 +64,12 @@ function segDist(m, A, B) {
   const t = clamp(((m[0] - A[0])*dx + (m[1] - A[1])*dy) / l2);
   return Math.hypot(A[0] + t*dx - m[0], A[1] + t*dy - m[1]);
 }
-function hitLink(m) {
+function hitLink(m, touch = false) {
   const s = S(), pos = s.steps[app.step];
-  return s.links.findIndex(([a, b]) => { const A = pos[a], B = pos[b]; return A && B && segDist(m, A, B) < Math.max(1.2, pxToM(6)); });
+  return s.links.findIndex(([a, b]) => { const A = pos[a], B = pos[b]; return A && B && segDist(m, A, B) < Math.max(1.2, pxToM(touch ? 14 : 6)); });
 }
-function hitShape(m) {
-  const s = S(), tol = Math.max(1.2, pxToM(7));
+function hitShape(m, touch = false) {
+  const s = S(), tol = Math.max(1.2, pxToM(touch ? 16 : 7));
   // de arriba hacia abajo: textos, flechas, zonas
   const order = { text: 0, arrow: 1, zone: 2 };
   for (const sh of [...s.shapes].sort((a, b) => order[a.kind] - order[b.kind])) {
@@ -78,42 +78,78 @@ function hitShape(m) {
   }
   return null;
 }
-function hitHandle(m) {
+function hitHandle(m, touch = false) {
   if (app.sel.size !== 1) return null;
   const sh = S().shapes.find(x => app.sel.has(x.id));
   if (!sh || sh.kind === 'text') return null;
-  const tol = Math.max(1, pxToM(9));
+  const tol = Math.max(1, pxToM(touch ? 20 : 9));
   for (const key of ['b', 'a']) if (Math.hypot(sh[key][0] - m[0], sh[key][1] - m[1]) < tol) return { sh, key };
   return null;
 }
 
-/* ---------- puntero ---------- */
+/* ---------- puntero (mouse, lápiz y dedos) ----------
+   Táctil: un dedo hace lo mismo que el mouse (las herramientas de "tocar" actúan al levantar el dedo,
+   para que un pellizco no agregue fichas); mantener apretado sobre una ficha = Shift+clic;
+   doble toque = editar; dos dedos = zoom (pellizco) y desplazamiento. */
+const ptrs = new Map();        // pointerId → [clientX, clientY] de los punteros apoyados
+let pinch = null;              // gesto de dos dedos en curso
+let press = 0;                 // temporizador del "mantener apretado"
+let tapT = null;               // acción táctil pendiente hasta levantar el dedo
+let lastTap = null;            // para el doble toque
+const LONG_MS = 450, TAP_PX = 10;
+const isTouch = e => e.pointerType === 'touch';
+const clearPress = () => { clearTimeout(press); press = 0; };
+
 function onDown(e) {
   if (!lay) return;
   cv.focus({ preventScroll: true });
+  if (!isTouch(e)) ptrs.clear();   // mouse/lápiz: un solo puntero (evita restos si se perdió un pointerup)
+  ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (ptrs.size >= 2) { if (isTouch(e) && ptrs.size === 2) startPinch(); e.preventDefault?.(); return; }
+  if (pinch) return;
+  const touch = isTouch(e);
   const m = toField(e), s = S();
   if (e.button === 1 || spaceDown || app.tool === 'pan') {
     drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
-    cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing'; e.preventDefault(); return;
+    cv.setPointerCapture?.(e.pointerId); cv.style.cursor = 'grabbing'; e.preventDefault?.(); return;
   }
-  if (e.button !== 0) return;
+  if (e.button && e.button !== 0) return;
   const tool = app.tool;
   if (tool === 'move') {
-    const h = hitHandle(m);
-    if (h) { drag = { kind: 'handle', sh: h.sh, key: h.key, snapped: false }; cv.setPointerCapture(e.pointerId); return; }
-    const hit = hitEnt(m) || hitShape(m);
+    const h = hitHandle(m, touch);
+    if (h) { drag = { kind: 'handle', sh: h.sh, key: h.key, o: [...h.sh[h.key]], snapped: false }; cv.setPointerCapture?.(e.pointerId); return; }
+    const hit = hitEnt(m, touch) || hitShape(m, touch);
     if (hit) {
+      const before = new Set(app.sel);
       if (e.shiftKey) { app.sel.has(hit.id) ? app.sel.delete(hit.id) : app.sel.add(hit.id); }
       else if (!app.sel.has(hit.id)) { app.sel.clear(); app.sel.add(hit.id); }
       if (app.sel.has(hit.id)) startMove(m, e);
+      if (touch && drag) {
+        drag.hit = hit.id; drag.touch = true; drag.sx = e.clientX; drag.sy = e.clientY;
+        press = setTimeout(() => longPress(hit.id, before), LONG_MS);
+      }
     } else {
       if (!e.shiftKey) app.sel.clear();
       drag = { kind: 'marquee', a: m, b: m, base: new Set(app.sel) };
-      cv.setPointerCapture(e.pointerId);
+      cv.setPointerCapture?.(e.pointerId);
     }
     hooks.renderProps();
-  } else if (tool === 'link') {
-    const hit = hitEnt(m);
+  } else if (touch && tool !== 'arrow' && tool !== 'zone') {
+    // tocar: se ejecuta al levantar el dedo (si no se movió ni se sumó un segundo dedo)
+    tapT = { m, x: e.clientX, y: e.clientY, tool };
+    return;
+  } else if (tool === 'arrow' || tool === 'zone') {
+    drag = { kind: 'draw', shape: { id: uid(), kind: tool, a: cl(m), b: cl(m), color: shapeStyle.color, dash: tool === 'zone' ? true : shapeStyle.dash } };
+    cv.setPointerCapture?.(e.pointerId);
+  } else toolTap(tool, m, e);
+  draw();
+}
+
+/** Acción de las herramientas de "tocar" (conectar, agregar, borrar, texto). */
+function toolTap(tool, m, e, touch = false) {
+  const s = S();
+  if (tool === 'link') {
+    const hit = hitEnt(m, touch);
     if (hit && hit.type === 'player') {
       if (!app.linkFrom) app.linkFrom = hit.id;
       else if (app.linkFrom !== hit.id) {
@@ -125,7 +161,7 @@ function onDown(e) {
       }
     } else app.linkFrom = null;
   } else if (tool === 'home' || tool === 'away') {
-    const hit = hitEnt(m);
+    const hit = hitEnt(m, touch);
     if (hit) { app.sel.clear(); app.sel.add(hit.id); app.tool = 'move'; hooks.renderTools(); hooks.renderProps(); }
     else {
       snap();
@@ -133,14 +169,11 @@ function onDown(e) {
       addEnt(s, ent, cl(m)); app.sel.clear(); app.sel.add(ent.id); changed(); hooks.renderProps(); hooks.renderSlides();
     }
   } else if (tool === 'erase') {
-    const hit = hitEnt(m) || hitShape(m);
+    const hit = hitEnt(m, touch) || hitShape(m, touch);
     if (hit) { snap(); removeIds(s, [hit.id]); changed(); hooks.renderProps(); hooks.renderTools(); }
-    else { const li = hitLink(m); if (li >= 0) { snap(); s.links.splice(li, 1); changed(); } }
-  } else if (tool === 'arrow' || tool === 'zone') {
-    drag = { kind: 'draw', shape: { id: uid(), kind: tool, a: cl(m), b: cl(m), color: shapeStyle.color, dash: tool === 'zone' ? true : shapeStyle.dash } };
-    cv.setPointerCapture(e.pointerId);
+    else { const li = hitLink(m, touch); if (li >= 0) { snap(); s.links.splice(li, 1); changed(); } }
   } else if (tool === 'text') {
-    const hit = hitShape(m);
+    const hit = hitShape(m, touch);
     if (hit && hit.kind === 'text') { app.sel.clear(); app.sel.add(hit.id); }
     else {
       snap();
@@ -150,10 +183,29 @@ function onDown(e) {
     app.tool = 'move'; hooks.renderTools(); hooks.renderProps();
     // evitar que el navegador devuelva el foco a la cancha después del pointerdown:
     // si no, escribir en el texto dispararía atajos (B, E, P, R, X, ⌫…)
-    e.preventDefault();
+    e?.preventDefault?.();
     setTimeout(() => hooks.focusShapeText?.(), 0);
   }
-  draw();
+}
+
+/** Mantener apretado una ficha: suma o quita de la selección (como Shift+clic). */
+function longPress(id, before) {
+  press = 0;
+  if (!drag || drag.kind !== 'move' || drag.snapped) return;
+  app.sel = before;
+  app.sel.has(id) ? app.sel.delete(id) : app.sel.add(id);
+  drag = { kind: 'idle' };
+  navigator.vibrate?.(12);
+  hooks.renderProps(); draw();
+}
+
+/** Doble clic / doble toque: editar la etiqueta de la jugadora o el texto. */
+function editAt(m, touch = false) {
+  const h = hitEnt(m, touch);
+  if (h && h.type === 'player') { app.sel.clear(); app.sel.add(h.id); hooks.renderProps(); setTimeout(() => hooks.focusLabel?.(), 0); draw(); return true; }
+  const sh = hitShape(m, touch);
+  if (sh?.kind === 'text') { app.sel.clear(); app.sel.add(sh.id); hooks.renderProps(); setTimeout(() => hooks.focusShapeText?.(), 0); draw(); return true; }
+  return false;
 }
 
 function startMove(m, e) {
@@ -163,16 +215,62 @@ function startMove(m, e) {
     else { const sh = s.shapes.find(x => x.id === id); if (sh) orig.set(id, { a: [...sh.a], b: sh.b ? [...sh.b] : null }); }
   }
   drag = { kind: 'move', start: m, orig, snapped: false };
-  cv.setPointerCapture(e.pointerId);
+  cv.setPointerCapture?.(e.pointerId);
+}
+
+/** Cancela el gesto de un dedo (porque empezó un pellizco) dejando todo como estaba. */
+function cancelDrag() {
+  clearPress(); tapT = null;
+  const d = drag; drag = null;
+  if (!d) return;
+  if (d.kind === 'move' && d.snapped) {
+    const s = S(), pos = s.steps[app.step];
+    for (const [id, o] of d.orig) {
+      if (Array.isArray(o)) pos[id] = [...o];
+      else { const sh = s.shapes.find(x => x.id === id); if (sh) { sh.a = [...o.a]; if (o.b) sh.b = [...o.b]; } }
+    }
+    unsnap();
+  } else if (d.kind === 'handle' && d.snapped) { d.sh[d.key] = d.o; unsnap(); }
+  else if (d.kind === 'marquee') app.sel = new Set(d.base);
+  hooks.renderProps();
+}
+
+/* ---------- pellizco: zoom + desplazamiento con dos dedos ---------- */
+function pinchMid() {
+  const [a, b] = [...ptrs.values()], r = cv.getBoundingClientRect();
+  return { mx: (a[0] + b[0]) / 2 - r.left, my: (a[1] + b[1]) / 2 - r.top, d: Math.hypot(b[0] - a[0], b[1] - a[1]) || 1 };
+}
+function startPinch() {
+  cancelDrag();
+  const { mx, my, d } = pinchMid();
+  // punto de la cancha que queda "pegado" bajo el centro de los dos dedos
+  pinch = { d0: d, z0: view.z, fx: (mx - lay.ox) / lay.sc, fy: (my - lay.oy) / lay.sc };
+  draw();
+}
+function movePinch() {
+  const { mx, my, d } = pinchMid(), b = lay.box;
+  const z = clamp(pinch.z0 * d / pinch.d0, .5, 6), sc = lay.base * z;
+  view.z = z;
+  view.x = (mx - pinch.fx * sc) - (b.x + (b.w - W * sc) / 2);
+  view.y = (my - pinch.fy * sc) - (b.y + (b.h - L * sc) / 2);
+  draw();
 }
 
 function onMove(e) {
   if (!lay) return;
+  if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pinch) { if (ptrs.size >= 2) movePinch(); return; }
+  if (tapT && Math.hypot(e.clientX - tapT.x, e.clientY - tapT.y) > TAP_PX) tapT = null;
   const m = toField(e); mouse = m;
+  if (drag?.kind === 'idle') return;
   if (drag?.kind === 'pan') { view.x = drag.vx + e.clientX - drag.sx; view.y = drag.vy + e.clientY - drag.sy; draw(); return; }
   if (drag?.kind === 'move') {
     const dx = m[0] - drag.start[0], dy = m[1] - drag.start[1];
-    if (!drag.snapped) { if (Math.hypot(dx, dy) * lay.sc < 2) return; snap(); drag.snapped = true; }
+    if (!drag.snapped) {
+      // con el dedo hace falta moverse un poco más para que cuente como arrastre (y no cancele el "mantener")
+      if (Math.hypot(dx, dy) * lay.sc < (drag.touch ? TAP_PX : 2)) return;
+      clearPress(); snap(); drag.snapped = true;
+    }
     const s = S(), pos = s.steps[app.step];
     for (const [id, o] of drag.orig) {
       if (Array.isArray(o)) pos[id] = cl([o[0] + dx, o[1] + dy]);
@@ -195,6 +293,7 @@ function onMove(e) {
     for (const sh of s.shapes) { const b = shapeBox(sh); if (inR([(b[0] + b[2]) / 2, (b[1] + b[3]) / 2])) app.sel.add(sh.id); }
     draw(); return;
   }
+  if (isTouch(e)) return;
   // cursor
   const tool = app.tool;
   if (spaceDown || tool === 'pan') cv.style.cursor = 'grab';
@@ -205,11 +304,28 @@ function onMove(e) {
   if (tool === 'link') draw();
 }
 
-function onUp() {
+function onUp(e) {
+  ptrs.delete(e?.pointerId);
+  clearPress();
+  if (pinch) { if (!ptrs.size) pinch = null; return; }   // hasta levantar todos los dedos no empieza otro gesto
+  if (tapT) {
+    const t = tapT; tapT = null;
+    if (e?.type !== 'pointercancel') { toolTap(t.tool, t.m, e, true); draw(); }
+    return;
+  }
   const d = drag; drag = null;
   if (!d) return;
   if (d.kind === 'pan') { cv.style.cursor = spaceDown || app.tool === 'pan' ? 'grab' : 'default'; return; }
-  if (d.kind === 'move' || d.kind === 'handle') { if (d.snapped) { changed(); hooks.renderProps(); } return; }
+  if (d.kind === 'move' || d.kind === 'handle') {
+    if (d.snapped) { changed(); hooks.renderProps(); }
+    else if (d.touch && d.hit) {
+      // doble toque sobre la misma ficha → editar
+      const now = performance.now();
+      if (lastTap && lastTap.id === d.hit && now - lastTap.t < 350) { lastTap = null; editAt(d.start, true); }
+      else lastTap = { id: d.hit, t: now };
+    }
+    return;
+  }
   if (d.kind === 'marquee') { hooks.renderProps(); draw(); return; }
   if (d.kind === 'draw') {
     const sh = d.shape, len = Math.hypot(sh.b[0] - sh.a[0], sh.b[1] - sh.a[1]);
@@ -320,11 +436,5 @@ export function initEditor(canvas) {
       zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * (e.ctrlKey ? .01 : .0018)));
     } else { view.x -= e.shiftKey ? e.deltaY : e.deltaX; view.y -= e.shiftKey ? 0 : e.deltaY; draw(); }
   }, { passive: false });
-  cv.addEventListener('dblclick', e => {
-    if (!lay) return;
-    const m = toField(e), h = hitEnt(m);
-    if (h && h.type === 'player') { app.sel.clear(); app.sel.add(h.id); hooks.renderProps(); setTimeout(() => hooks.focusLabel?.(), 0); draw(); return; }
-    const sh = hitShape(m);
-    if (sh?.kind === 'text') { app.sel.clear(); app.sel.add(sh.id); hooks.renderProps(); setTimeout(() => hooks.focusShapeText?.(), 0); draw(); }
-  });
+  cv.addEventListener('dblclick', e => { if (lay && e.pointerType !== 'touch') editAt(toField(e)); });
 }

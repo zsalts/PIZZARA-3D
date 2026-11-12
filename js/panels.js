@@ -1,7 +1,9 @@
 /* ============ paneles: slides, pasos, herramientas y propiedades ============ */
-import { $, $$, esc, clone, uid } from './util.js';
+import { $, $$, esc, clone, uid, readPrefs, writePrefs } from './util.js';
 import { app, S, hooks, snap, save, changed, removeIds, defaultProject, setProject } from './state.js';
-import { FORMATIONS, applyFormation, autoLinks, hasLink } from './formations.js';
+import { autoLinks, hasLink } from './formations.js';
+import { linksFor } from './systems.js';
+import { initSystemsUI } from './systems-ui.js';
 import { drawScene2D } from './cancha.js';
 import { draw, shapeStyle, setPaths, prefs, fitView, zoomBy } from './editor2d.js';
 import { toast, confirmDialog } from './ui.js';
@@ -9,23 +11,43 @@ import { toast, confirmDialog } from './ui.js';
 const SHAPE_COLORS = [['#ffffff', 'Blanco'], ['#f2c94c', 'Amarillo'], ['#c8323c', 'Rojo'], ['#7dd3fc', 'Celeste'], ['#4ade80', 'Verde'], ['#1c1a18', 'Negro']];
 
 /* ---------- herramientas ---------- */
+/* ayuda corta que aparece unos segundos al cambiar de herramienta (el detalle está en el panel “?”) */
 const HINTS = {
-  move: 'Arrastrá para mover. Shift+clic o recuadro para seleccionar varias. Cada paso guarda sus posiciones; en 3D se animan de un paso al siguiente.',
-  link: 'Hacé clic en una jugadora y después en otra para unirlas (sigue encadenando). Clic en el vacío para cortar.',
-  home: 'Clic en la cancha para agregar una jugadora propia.',
-  away: 'Clic en la cancha para agregar una rival.',
-  erase: 'Clic en una jugadora, la bocha, una anotación o una conexión para borrarla.',
-  arrow: 'Arrastrá para dibujar una flecha (se ve también en 3D). Elegí color y punteado en el panel.',
-  zone: 'Arrastrá para marcar una zona rectangular.',
-  text: 'Clic en la cancha para escribir un texto.',
-  pan: 'Arrastrá para desplazar la vista. Rueda o +/− para zoom, 0 para ajustar.',
+  move: 'Arrastrá para mover · Shift+clic o recuadro para elegir varias',
+  link: 'Clic en una jugadora y después en otra · clic en el vacío corta',
+  home: 'Clic en la cancha para agregar una propia',
+  away: 'Clic en la cancha para agregar una rival',
+  erase: 'Clic en lo que quieras borrar',
+  arrow: 'Arrastrá para dibujar una flecha',
+  zone: 'Arrastrá para marcar una zona',
+  text: 'Clic en la cancha para escribir',
+  pan: 'Arrastrá para desplazar · rueda para zoom',
 };
+const TOUCH_HINTS = {
+  move: 'Arrastrá para mover · mantené apretado para elegir varias · dos dedos: zoom',
+  link: 'Tocá una jugadora y después otra',
+  home: 'Tocá la cancha para agregar una propia',
+  away: 'Tocá la cancha para agregar una rival',
+  erase: 'Tocá lo que quieras borrar',
+  text: 'Tocá la cancha para escribir',
+};
+const coarse = () => !!window.matchMedia?.('(pointer: coarse)').matches;
+let hintTool = null, hintT = 0;
+function showHint(tool) {
+  const h = $('#hint');
+  h.textContent = (coarse() && TOUCH_HINTS[tool]) || HINTS[tool] || '';
+  h.classList.add('show'); clearTimeout(hintT);
+  hintT = setTimeout(() => h.classList.remove('show'), 2600);
+}
 export function renderTools() {
   $$('[data-tool]').forEach(b => { const on = b.dataset.tool === app.tool; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
-  $('#hint').textContent = HINTS[app.tool] || '';
+  if (hintTool !== null && hintTool !== app.tool) showHint(app.tool);
+  hintTool = app.tool;
   if (app.tool !== 'link') app.linkFrom = null;
   $('#dHome').style.background = app.P.homeColor; $('#dAway').style.background = app.P.awayColor;
-  $('#bBall').textContent = S().ents.some(e => e.type === 'ball') ? '⚫ Quitar bocha' : '⚫ Agregar bocha';
+  const ball = S().ents.some(e => e.type === 'ball'), bb = $('#bBall');
+  bb.classList.toggle('on', ball); bb.setAttribute('aria-pressed', ball);
+  bb.setAttribute('aria-label', ball ? 'Quitar bocha' : 'Agregar bocha'); bb.title = `${ball ? 'Quitar' : 'Agregar'} la bocha (B)`;
   $('#tPaths').checked = prefs.paths;
   draw();
 }
@@ -45,11 +67,11 @@ export function setStep(i) {
 }
 export function renderSteps() {
   const s = S();
-  $('#steps').innerHTML = `<span class="lbl">Pasos</span>` +
-    s.steps.map((_, i) => `<button class="step ${i === app.step ? 'on' : ''}" data-i="${i}" aria-pressed="${i === app.step}">Paso ${i + 1}</button>`).join('') +
-    `<button id="stAdd" title="Agrega un paso copiando las posiciones del actual">+ Agregar paso</button>` +
-    (s.steps.length > 1 ? `<button id="stDel" class="ghost">Eliminar paso ${app.step + 1}</button>` : '') +
-    `<span class="muted">${s.steps.length > 1 ? 'Flechas punteadas: carreras · línea continua: pase de la bocha' : 'Agregá un paso para que se muevan'}</span>`;
+  const ic = n => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+  $('#steps').innerHTML = `<span class="lbl">Pasos</span><div class="chips">` +
+    s.steps.map((_, i) => `<button class="step ${i === app.step ? 'on' : ''}" data-i="${i}" aria-pressed="${i === app.step}" aria-label="Paso ${i + 1}" title="Paso ${i + 1}">${i + 1}</button>`).join('') +
+    `<button id="stAdd" class="ghost" title="Agregar paso (copia las posiciones del actual)" aria-label="Agregar paso">${ic('plus')}<span class="t">Paso</span></button></div>` +
+    (s.steps.length > 1 ? `<button id="stDel" class="ib ghost" title="Eliminar paso ${app.step + 1}" aria-label="Eliminar paso ${app.step + 1}">${ic('erase')}</button>` : '');
   $$('#steps .step').forEach(b => b.onclick = () => setStep(+b.dataset.i));
   $('#stAdd').onclick = () => { snap(); s.steps.splice(app.step + 1, 0, clone(s.steps[app.step])); app.step++; renderSteps(); changed(); renderSlides(); };
   const d = $('#stDel'); if (d) d.onclick = () => { snap(); s.steps.splice(app.step, 1); app.step = Math.max(0, app.step - 1); renderSteps(); changed(); renderSlides(); };
@@ -223,18 +245,15 @@ export function initPanels() {
   });
   $('#mDel').onclick = () => $('#eDel').onclick();
 
-  // formaciones
-  $('#fSel').innerHTML = Object.entries(FORMATIONS).map(([k, f]) => `<option value="${k}">${f.name}${f.abs ? ' (propio ataca, rival defiende)' : ''}</option>`).join('');
-  const fKey = () => $('#fSel').value;
-  $('#fHome').onclick = () => { snap(); applyFormation(S(), 'home', fKey()); app.sel.clear(); changed(); renderSlides(); renderProps(); toast(`${FORMATIONS[fKey()].name} en el equipo propio`); };
-  $('#fAway').onclick = () => { snap(); applyFormation(S(), 'away', fKey()); app.sel.clear(); changed(); renderSlides(); renderProps(); toast(`${FORMATIONS[fKey()].name} en el rival`); };
+  // sistemas tácticos (incluidos + biblioteca personal) y limpieza
+  initSystemsUI();
   $('#fNoAway').onclick = () => { snap(); removeIds(S(), S().ents.filter(e => e.team === 'away').map(e => e.id)); changed(); renderSlides(); renderProps(); };
   $('#fNoHl').onclick = () => { snap(); S().ents.forEach(e => e.hl = false); changed(); renderProps(); };
   $('#fNoLinks').onclick = () => { snap(); S().links = []; changed(); };
   $('#fAutoLinks').onclick = () => {
-    const n = autoLinks(clone(S()));   // prueba en una copia: si no agrega nada, no se crea un paso de deshacer vacío
-    if (n) { snap(); autoLinks(S()); changed(); }
-    toast(n ? `${n} conexiones agregadas` : 'No hay conexiones nuevas para agregar (se usan los roles de la formación propia)', n ? 'ok' : 'info');
+    const n = autoLinks(clone(S()), linksFor);   // prueba en una copia: si no agrega nada, no se crea un paso de deshacer vacío
+    if (n) { snap(); autoLinks(S(), linksFor); changed(); }
+    toast(n ? `${n} conexiones agregadas` : 'No hay conexiones nuevas para agregar (se usan los roles del sistema propio)', n ? 'ok' : 'info');
   };
   $('#fNoShapes').onclick = () => { if (!S().shapes.length) return; snap(); removeIds(S(), S().shapes.map(x => x.id)); changed(); renderProps(); };
 
@@ -277,14 +296,26 @@ export function initPanels() {
   hooks.focusLabel = () => { const i = $('#eLabel'); openProps(); i.focus(); i.select(); };
   hooks.focusShapeText = () => { const i = $('#shText'); if ($('#selShape').hidden || $('#shTextF').hidden) return; openProps(); i.focus(); i.select(); };
 
-  // panel derecho como cajón en pantallas angostas
-  $('#bProps').onclick = () => toggleProps();
+  // panel derecho como cajón (tablet) u hoja inferior (celular)
+  $$('[data-props]').forEach(b => b.onclick = () => toggleProps());
+  $('#bPropsClose').onclick = () => toggleProps(false);
   $('#scrim').onclick = () => toggleProps(false);
+  // hoja inferior: deslizar hacia abajo desde la barrita la cierra
+  let sy = null;
+  $('#right .sheetbar').addEventListener('pointerdown', e => { sy = e.clientY; });
+  addEventListener('pointerup', e => { if (sy != null && e.clientY - sy > 50) toggleProps(false); sy = null; });
+
+  // secciones colapsables: se recuerda cuáles quedaron abiertas
+  const open = readPrefs().secs || {};
+  $$('#right details[data-sec]').forEach(d => {
+    if (d.dataset.sec in open) d.open = !!open[d.dataset.sec];
+    d.addEventListener('toggle', () => writePrefs({ secs: { ...(readPrefs().secs || {}), [d.dataset.sec]: d.open } }));
+  });
 }
-const narrow = () => matchMedia('(max-width:980px)').matches;
+const narrow = () => !!window.matchMedia?.('(max-width:980px)').matches;
 function openProps() { if (narrow()) toggleProps(true); }
 export function toggleProps(on = !document.body.classList.contains('props-open')) {
   document.body.classList.toggle('props-open', on);
   $('#scrim').hidden = !on || !narrow();
-  $('#bProps').setAttribute('aria-expanded', on);
+  $$('[data-props]').forEach(b => { b.setAttribute('aria-expanded', on); b.classList.toggle('on', on && narrow()); });
 }

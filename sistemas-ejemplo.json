@@ -1,0 +1,50 @@
+{
+ "type": "pizarra-sistemas",
+ "version": 1,
+ "systems": [
+  {
+   "name": "3-4-3 presión alta",
+   "players": [
+    { "label": "ARQ", "role": "ARQ", "x": 27.5, "y": 87.5 },
+    { "label": "LI",  "role": "LI",  "x": 13,   "y": 66 },
+    { "label": "LC",  "role": "LC",  "x": 27.5, "y": 70 },
+    { "label": "LD",  "role": "LD",  "x": 42,   "y": 66 },
+    { "label": "VI",  "role": "VI",  "x": 7,    "y": 46 },
+    { "label": "VCI", "role": "VCI", "x": 21,   "y": 50 },
+    { "label": "VCD", "role": "VCD", "x": 34,   "y": 50 },
+    { "label": "VD",  "role": "VD",  "x": 48,   "y": 46 },
+    { "label": "PI",  "role": "PI",  "x": 11,   "y": 24 },
+    { "label": "9",   "role": "9",   "x": 27.5, "y": 18 },
+    { "label": "PD",  "role": "PD",  "x": 44,   "y": 24 }
+   ],
+   "links": [
+    ["ARQ", "LC"], ["LC", "LI"], ["LC", "LD"],
+    ["LI", "VI"], ["LI", "VCI"], ["LC", "VCI"], ["LC", "VCD"], ["LD", "VCD"], ["LD", "VD"],
+    ["VI", "VCI"], ["VCI", "VCD"], ["VCD", "VD"],
+    ["VI", "PI"], ["VCI", "9"], ["VCD", "9"], ["VD", "PD"], ["PI", "9"], ["9", "PD"]
+   ]
+  },
+  {
+   "name": "4-1-4-1",
+   "players": [
+    { "label": "ARQ", "role": "ARQ", "x": 27.5, "y": 87.5 },
+    { "label": "LI",  "role": "LI",  "x": 7,    "y": 70 },
+    { "label": "CI",  "role": "CI",  "x": 20,   "y": 77 },
+    { "label": "CD",  "role": "CD",  "x": 35,   "y": 77 },
+    { "label": "LD",  "role": "LD",  "x": 48,   "y": 70 },
+    { "label": "5",   "role": "VC",  "x": 27.5, "y": 62 },
+    { "label": "VI",  "role": "VI",  "x": 8,    "y": 44 },
+    { "label": "II",  "role": "II",  "x": 20,   "y": 47 },
+    { "label": "ID",  "role": "ID",  "x": 35,   "y": 47 },
+    { "label": "VD",  "role": "VD",  "x": 47,   "y": 44 },
+    { "label": "9",   "role": "9",   "x": 27.5, "y": 24 }
+   ],
+   "links": [
+    ["ARQ", "CI"], ["ARQ", "CD"], ["CI", "CD"], ["CI", "LI"], ["CD", "LD"],
+    ["CI", "5"], ["CD", "5"], ["LI", "VI"], ["LD", "VD"],
+    ["5", "II"], ["5", "ID"], ["VI", "II"], ["II", "ID"], ["ID", "VD"],
+    ["II", "9"], ["ID", "9"]
+   ]
+  }
+ ]
+}

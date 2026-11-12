@@ -59,19 +59,19 @@ export function applyFormation(s, team, key = '433') {
   });
 }
 
-/** Conexiones automáticas del equipo propio según la formación de cada jugadora. */
-export function autoLinks(s) {
+/** Conexiones automáticas del equipo propio según la formación (o sistema personal, vía `linksOf`) de cada jugadora. */
+export function autoLinks(s, linksOf = k => FORMATIONS[k]?.links) {
   const home = s.ents.filter(e => e.type === 'player' && e.team === 'home');
   const groups = {};
   for (const e of home) (groups[e.form || '433'] ||= []).push(e);
   let added = 0;
   for (const [key, ents] of Object.entries(groups)) {
-    const F = FORMATIONS[key]; if (!F) continue;
+    const links = linksOf(key); if (!links) continue;
     const by = {};
     // primero por etiqueta (como la original), después por rol (si se renombró la etiqueta)
     ents.forEach(e => { if (e.label) by[e.label] ??= e.id; });
     ents.forEach(e => { if (e.role) by[e.role] = e.id; });
-    F.links.forEach(([a, b]) => {
+    links.forEach(([a, b]) => {
       if (by[a] && by[b] && by[a] !== by[b] && !hasLink(s, by[a], by[b])) { s.links.push([by[a], by[b]]); added++; }
     });
   }

@@ -119,11 +119,14 @@ function normalizeSlide(s, usedIds) {
 export function normalizeProject(d) {
   if (!d || typeof d !== 'object' || !Array.isArray(d.slides) || !d.slides.length) throw new Error('Proyecto inválido');
   const used = new Set();
+  const { systems, ...rest } = d;
   return {
-    ...d,
+    ...rest,
+    // opcional: sistemas tácticos que viajan con el archivo (se ofrecen para la biblioteca al abrirlo)
+    ...(Array.isArray(systems) && systems.length ? { systems } : {}),
     version: VERSION,
     showTexts: !!d.showTexts,
-    showLinks: !!d.showLinks,   // opcional: conexiones entre jugadoras en visor/video/PNG/PDF (apagado por defecto)   // opcional: textos sobre la imagen en visor/video/PNG (apagado por defecto)
+    showLinks: !!d.showLinks,   // opcional: conexiones entre jugadoras en visor/video/PNG/PDF (apagado por defecto)
     handle: str(d.handle),
     homeColor: isColor(d.homeColor) ? d.homeColor : '#c8323c',
     awayColor: isColor(d.awayColor) ? d.awayColor : '#8e8e93',
@@ -178,6 +181,8 @@ export function snap() {
   fut.length = 0;
   hooks.history();
 }
+/** Descarta el último punto de deshacer (un gesto que se canceló sin cambiar nada). */
+export function unsnap() { if (hist.length) { hist.pop(); hooks.history(); } }
 function restore(json) {
   app.P = JSON.parse(json);
   app.cur = Math.min(app.cur, app.P.slides.length - 1);

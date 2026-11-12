@@ -4,8 +4,12 @@ import { app, hooks, loadInitial, flushSave, save, snap, undo, redo, canUndo, ca
 import { initEditor, draw, selectAll, clearSel, copySel, paste, cutSel, duplicateSel, deleteSel, nudge, zoomBy, fitView, setSpace } from './editor2d.js';
 import { initPanels, renderSlides, renderSteps, renderProps, renderTools, updateThumb, setTool, toggleBall, setStep, toggleProps } from './panels.js';
 import { Viewer, slideDur } from './visor3d.js';
-import { saveJSON, readJSON, videoTypes, mimeForFps, bitrateFor, recordCanvas, videoName, exportPNGs, exportPDF } from './export.js';
+import { saveJSON, videoTypes, mimeForFps, bitrateFor, recordCanvas, videoName, exportPNGs, exportPDF } from './export.js';
 import { toast, openDialog, closeDialog, anyDialogOpen, initTheme } from './ui.js';
+import { normalizeProject } from './state.js';
+import { isSystemsFile, projectSystems } from './systems.js';
+import { importSystemsText, adoptProjectSystems } from './systems-ui.js';
+import { initCloud } from './nube.js';
 
 /* ---------- render global ---------- */
 function renderAll() { renderSlides(); renderSteps(); renderProps(); renderTools(); draw(); syncHistory(); }
@@ -16,10 +20,22 @@ Object.assign(hooks, {
 });
 
 /* ---------- archivo ---------- */
-function doSave() { saveJSON(app.P); toast('Proyecto guardado como archivo', 'ok'); }
+function doSave() {
+  const sys = projectSystems();   // los sistemas tácticos propios viajan dentro del archivo (campo opcional "systems")
+  saveJSON(sys.length ? { ...app.P, systems: sys } : app.P);
+  toast('Proyecto guardado como archivo', 'ok');
+}
+/** Abre un proyecto .json; si el archivo es de sistemas tácticos, los carga en la biblioteca. */
 async function openFile(f) {
-  try { const d = await readJSON(f); snap(); setProject(d); renderAll(); save(); toast(`Abierto: ${f.name} (${d.slides.length} slides)`, 'ok'); }
-  catch { toast('Ese archivo no es un proyecto válido.', 'error', 5000); }
+  let raw;
+  try { raw = JSON.parse(await f.text()); } catch { return toast('Ese archivo no es un JSON válido.', 'error', 5000); }
+  if (isSystemsFile(raw)) return importSystemsText(JSON.stringify(raw), f.name);
+  let d;
+  try { d = normalizeProject(raw); } catch { return toast('Ese archivo no es un proyecto válido.', 'error', 5000); }
+  const extra = d.systems; delete d.systems;
+  snap(); setProject(d); renderAll(); save();
+  toast(`Abierto: ${f.name} (${d.slides.length} slides)`, 'ok');
+  if (extra) adoptProjectSystems(extra);   // sistemas que trae el archivo → a la biblioteca, sin preguntar
 }
 $('#bExport').onclick = doSave;
 $('#bImport').onclick = () => $('#fileIn').click();
@@ -69,7 +85,12 @@ function previewQ() {
 const refit = () => { if (V && !rec && viewerOpen()) V.setFormat(V.bw, V.bh, previewQ()); };
 addEventListener('resize', refit);
 document.addEventListener('fullscreenchange', () => setTimeout(refit, 100));
-function syncPlay() { $('#vPlay').textContent = V.playing ? '⏸ Pausa' : '▶ Reproducir'; }
+const icon = n => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+function syncPlay() {
+  const b = $('#vPlay');
+  b.innerHTML = V.playing ? `${icon('pause')}<span class="t">Pausa</span>` : `${icon('play')}<span class="t">Reproducir</span>`;
+  b.setAttribute('aria-label', V.playing ? 'Pausa' : 'Reproducir');
+}
 
 function setFmt(f) {
   app.fmt = f; writePrefs({ fmt: f });
@@ -86,7 +107,18 @@ function setEditorInert(on) {
 }
 
 let hintT = 0;
-function flashHint() { const h = $('#vHint'); h.classList.add('show'); clearTimeout(hintT); hintT = setTimeout(() => h.classList.remove('show'), 3000); }
+const coarse = () => !!window.matchMedia?.('(pointer: coarse)').matches;
+function flashHint() {
+  const h = $('#vHint');
+  h.textContent = coarse() ? 'Deslizá para cambiar de slide · tocá para pausar' : '← → slides · Espacio pausa/sigue · Esc salir';
+  h.classList.add('show'); clearTimeout(hintT); hintT = setTimeout(() => h.classList.remove('show'), 3000);
+}
+/** Ícono grande que aparece un instante en el centro (pausa / sigue / slide). */
+let flashT = 0;
+function flashIcon(name) {
+  const f = $('#vFlash'); f.innerHTML = icon(name); f.classList.remove('show'); void f.offsetWidth; f.classList.add('show');
+  clearTimeout(flashT); flashT = setTimeout(() => f.classList.remove('show'), 600);
+}
 
 function openViewer(i = app.cur) {
   getViewer();
@@ -141,12 +173,32 @@ $$('[data-fmt]').forEach(b => b.onclick = () => { if (!rec) setFmt(b.dataset.fmt
 $('#vPresent').onclick = present;
 $('#vExport').onclick = () => openExport();
 $('#vRec').onclick = () => rec ? stopVideo() : openExport(true);
+// gestos sobre la imagen: deslizar a los costados cambia de slide; un toque (o clic) pausa / sigue
+{
+  let sw = null;
+  const st = $('.vstage');
+  st.addEventListener('pointerdown', e => { if (!e.button) sw = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; });
+  st.addEventListener('pointercancel', () => { sw = null; });
+  st.addEventListener('pointerup', e => {
+    if (!sw || (e.pointerId !== sw.id && sw.id !== undefined) || !V) return;
+    const dx = e.clientX - sw.x, dy = e.clientY - sw.y, dt = performance.now() - sw.t; sw = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
+      if (recBlocked()) return;
+      const j = V.i + (dx < 0 ? 1 : -1);
+      if (j < 0 || j >= app.P.slides.length) return flashIcon(dx < 0 ? 'next' : 'prev');
+      go(dx < 0 ? 1 : -1); flashIcon(dx < 0 ? 'next' : 'prev');
+    } else if (Math.hypot(dx, dy) < 12 && dt < 500) {
+      if (rec) return recBlocked();
+      smartSpace(); flashIcon(V.playing ? 'play' : 'pause');
+    }
+  });
+}
 // ocultar el cursor en pantalla completa si no se mueve
 let idleT = 0;
 // (en pantalla completa también se oculta la barra de controles; vuelve al mover el mouse o al tabular)
-const wake = () => { viewerEl.classList.remove('idle'); clearTimeout(idleT); if (document.fullscreenElement) idleT = setTimeout(() => { if (!viewerEl.querySelector('.vbar').contains(document.activeElement) || document.activeElement === $('#vClose')) viewerEl.classList.add('idle'); }, 2500); };
+const wake = () => { viewerEl.classList.remove('idle'); clearTimeout(idleT); if (document.fullscreenElement) idleT = setTimeout(() => { if (!document.activeElement?.closest?.('.vbar, .vctl') || document.activeElement === $('#vClose')) viewerEl.classList.add('idle'); }, 2500); };
 viewerEl.addEventListener('pointermove', wake);
-viewerEl.addEventListener('focusin', e => { if (e.target.closest('.vbar')) wake(); });
+viewerEl.addEventListener('focusin', e => { if (e.target.closest('.vbar, .vctl')) wake(); });
 document.addEventListener('fullscreenchange', () => { if (document.fullscreenElement) { viewerEl.classList.add('idle'); clearTimeout(idleT); } else { viewerEl.classList.remove('idle'); } });
 
 /* ============ exportación ============ */
@@ -221,7 +273,7 @@ function startVideo() {
     return toast('No se pudo iniciar la grabación con ese formato.', 'error');
   }
   rec.ext = t.ext;
-  $('#recBadge').classList.add('on'); $('#vRec').textContent = '■ Detener';
+  $('#recBadge').classList.add('on'); $('#vRec').innerHTML = `${icon('stop')}<span class="t">Detener</span>`; $('#vRec').setAttribute('aria-label', 'Detener grabación');
   toast(`Grabando ${V.w}×${V.h} · ${fps} fps · ${(bitrate / 1e6).toFixed(0)} Mbps`, 'info');
 }
 async function stopVideo() {
@@ -237,7 +289,7 @@ async function stopVideo() {
   toast(`Video exportado (${(blob.size / 1048576).toFixed(1)} MB)`, 'ok');
 }
 function restoreAfterRec() {
-  $('#recBadge').classList.remove('on'); $('#vRec').textContent = '● Exportar video';
+  $('#recBadge').classList.remove('on'); $('#vRec').innerHTML = `${icon('rec')}<span class="t">Video</span>`; $('#vRec').setAttribute('aria-label', 'Exportar video');
   V.playAll = recPlayAll; $('#vAll').checked = recPlayAll;
   V.setFormat(V.bw, V.bh, previewQ());
 }
@@ -298,7 +350,7 @@ addEventListener('keydown', e => {
   if (k === '-') return zoomBy(1 / 1.25);
   if (k === '0') return fitView();
   if (k === 'Delete' || k === 'Backspace') { if (app.sel.size) { e.preventDefault(); deleteSel(); } return; }
-  if (k === 'Escape') { clearSel(); if (app.tool !== 'move') setTool('move'); toggleProps(false); return; }
+  if (k === 'Escape') { if (closeMenu()) return; clearSel(); if (app.tool !== 'move') setTool('move'); toggleProps(false); return; }
   if (k === 'Enter' && !/^(BUTTON|A|SUMMARY)$/.test(document.activeElement?.tagName) && !inSlides) { openViewer(); return; }
   if (k.startsWith('Arrow') && !inSlides) {
     const st = e.shiftKey ? 2 : .5;
@@ -311,12 +363,35 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { if (e.key === ' ') setSpace(false); });
 addEventListener('blur', () => setSpace(false));
 
+/* ============ menú "⋯" (celular): reúne Abrir, Guardar, Exportar, Nube, tema, ayuda y acciones de slide ============ */
+const menu = $('#moreMenu'), moreB = $('#bMore');
+function closeMenu() { if (menu.hidden) return false; menu.hidden = true; moreB.setAttribute('aria-expanded', 'false'); return true; }
+moreB.onclick = e => {
+  e.stopPropagation();
+  if (!closeMenu()) { menu.hidden = false; moreB.setAttribute('aria-expanded', 'true'); menu.querySelector('button')?.focus(); }
+};
+menu.onclick = e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  e.stopPropagation(); closeMenu();
+  $(b.dataset.act)?.click();
+};
+menu.onkeydown = e => {
+  const items = [...menu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+  else if (e.key === 'Escape') { e.stopPropagation(); closeMenu(); moreB.focus(); }
+};
+document.addEventListener('pointerdown', e => { if (!menu.hidden && !e.target.closest('#moreMenu, #bMore')) closeMenu(); });
+// en iPhone no existe la pantalla completa de un elemento: el visor ya ocupa toda la pantalla
+if (!document.fullscreenEnabled && !viewerEl.requestFullscreen) $('#vPresent').hidden = true;
+
 /* ============ inicio ============ */
 addEventListener('beforeunload', flushSave);
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
 
 initTheme();
 initPanels();
+initCloud(d => { snap(); setProject(d); renderAll(); save(); });
 initEditor($('#cv'));
 app.fmt = readPrefs().fmt === 'h' ? 'h' : 'v';
 setFmt(app.fmt);

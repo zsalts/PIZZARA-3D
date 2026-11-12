@@ -2,9 +2,12 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Pizarra Hockey 3D</title>
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#c8323c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -15,10 +18,10 @@
 /* Versión de la app: SUBILA cada vez que cambies archivos de js/ o css/ para que el navegador no use copias viejas
    en caché (python -m http.server no manda no-cache). Es el único lugar donde está la versión: el import map de abajo
    agrega ?v=… a TODOS los módulos (también a los imports relativos entre módulos) y a la hoja de estilos. */
-window.APP_VERSION = '11';
+window.APP_VERSION = '15';
 (() => {
   const v = window.APP_VERSION;
-  const mods = ['main', 'util', 'formations', 'state', 'cancha', 'editor2d', 'visor3d', 'export', 'ui', 'panels'];
+  const mods = ['main', 'util', 'formations', 'systems', 'systems-ui', 'state', 'cancha', 'editor2d', 'visor3d', 'export', 'ui', 'panels', 'config', 'nube'];
   const imports = { three: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js' };
   for (const m of mods) imports[`./js/${m}.js`] = `./js/${m}.js?v=${v}`;
   document.write(`<script type="importmap">${JSON.stringify({ imports })}<\/script><link rel="stylesheet" href="css/app.css?v=${v}">`);
@@ -26,24 +29,84 @@ window.APP_VERSION = '11';
 </script>
 </head>
 <body>
+<!-- íconos (trazo 2 px, 24 × 24) -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-move" viewBox="0 0 24 24"><path d="M5 3.5l13.5 6.8-5.8 1.9-2 5.8z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+  <symbol id="i-erase" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 19L18 6M9 5h10v10"/></symbol>
+  <symbol id="i-zone" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2" stroke-dasharray="3 2.6"/></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 7V4h14v3M12 4v16M9 20h6"/></symbol>
+  <symbol id="i-pan" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></symbol>
+  <symbol id="i-ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.5" fill="currentColor"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 8.5a4.8 4.8 0 0 1-.5 9.5z"/></symbol>
+  <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.7.3-1 .9-1 1.7M12 17h.01"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.7" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-replay" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4 4v5h5"/></symbol>
+  <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-notes" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9.5 12h6M9.5 16h4"/></symbol>
+  <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h5a3 3 0 0 0 0-6h-2a3 3 0 0 1 0-6h5" stroke-dasharray="2.4 2.4"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
+  <symbol id="i-system" viewBox="0 0 24 24"><circle cx="6" cy="18" r="1.9"/><circle cx="12" cy="18.5" r="1.9"/><circle cx="18" cy="18" r="1.9"/><circle cx="8.5" cy="12" r="1.9"/><circle cx="15.5" cy="12" r="1.9"/><circle cx="12" cy="5.5" r="1.9"/></symbol>
+  <symbol id="i-portrait" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/></symbol>
+  <symbol id="i-landscape" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/></symbol>
+</svg>
+
 <a class="skip" href="#cv">Saltar a la cancha</a>
 <div id="loading" role="status">CARGANDO…</div>
 
 <header>
-  <div class="brand"><i aria-hidden="true"></i>Pizarra <span>Hockey</span> 3D</div>
+  <div class="brand" title="Pizarra Hockey 3D"><i aria-hidden="true"></i><span class="bt">Pizarra <span>Hockey</span> 3D</span></div>
   <div class="sp"></div>
   <nav class="hbtns" aria-label="Acciones del proyecto">
-    <button id="bUndo" title="Deshacer (⌘Z)" aria-label="Deshacer"><span aria-hidden="true">↶</span><span class="t"> Deshacer</span></button>
-    <button id="bRedo" title="Rehacer (⌘⇧Z)" aria-label="Rehacer"><span aria-hidden="true">↷</span><span class="t"> Rehacer</span></button>
-    <span class="hsep" aria-hidden="true"></span>
-    <button id="bImport" title="Abrir proyecto (⌘O)" aria-label="Abrir proyecto"><span aria-hidden="true">📂</span><span class="t"> Abrir…</span></button>
-    <button id="bExport" title="Guardar archivo .json (⌘S)" aria-label="Guardar archivo"><span aria-hidden="true">💾</span><span class="t"> Guardar archivo</span></button>
-    <button id="bExportMenu" title="Exportar PNG, PDF o video (E)" aria-label="Exportar"><span aria-hidden="true">⇪</span><span class="t"> Exportar…</span></button>
-    <button id="bTheme" class="sq" title="Tema" aria-label="Tema">◐</button>
-    <button id="bHelp" class="sq" title="Atajos de teclado (?)" aria-label="Atajos de teclado">?</button>
-    <button id="bProps" class="sq narrow-only" title="Propiedades" aria-label="Mostrar propiedades" aria-expanded="false" aria-controls="right">⚙</button>
-    <button id="bView" class="primary" title="Ver en 3D (Enter)"><span class="t">Ver en </span>3D ▶</button>
+    <button id="bUndo" class="ib" title="Deshacer (⌘Z)" aria-label="Deshacer"><svg class="ic" aria-hidden="true"><use href="#i-undo"/></svg></button>
+    <button id="bRedo" class="ib" title="Rehacer (⌘⇧Z)" aria-label="Rehacer"><svg class="ic" aria-hidden="true"><use href="#i-redo"/></svg></button>
+    <span class="hsep desk" aria-hidden="true"></span>
+    <button id="bImport" class="ib desk" title="Abrir proyecto (⌘O)" aria-label="Abrir proyecto"><svg class="ic" aria-hidden="true"><use href="#i-open"/></svg><span class="t">Abrir</span></button>
+    <button id="bExport" class="ib desk" title="Guardar archivo .json (⌘S)" aria-label="Guardar archivo"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg><span class="t">Guardar</span></button>
+    <button id="bCloud" class="ib desk" title="Guardar y abrir planteos en la nube" aria-label="Nube"><svg class="ic" aria-hidden="true"><use href="#i-cloud"/></svg><span class="t">Nube</span></button>
+    <button id="bExportMenu" class="ib desk" title="Exportar PNG, PDF o video (E)" aria-label="Exportar"><svg class="ic" aria-hidden="true"><use href="#i-export"/></svg><span class="t">Exportar</span></button>
+    <button id="bTheme" class="ib desk" title="Tema" aria-label="Tema"><svg class="ic" aria-hidden="true"><use href="#i-theme"/></svg></button>
+    <button id="bHelp" class="ib desk" title="Ayuda y atajos (?)" aria-label="Ayuda y atajos"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg></button>
+    <button id="bProps" class="ib narrow-only" data-props title="Propiedades" aria-label="Mostrar propiedades" aria-expanded="false" aria-controls="right"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+    <button id="bView" class="primary" title="Ver en 3D (Enter)"><svg class="ic" aria-hidden="true"><use href="#i-play"/></svg><span>3D</span></button>
+    <button id="bMore" class="ib phone-only" title="Más opciones" aria-label="Más opciones" aria-haspopup="menu" aria-expanded="false" aria-controls="moreMenu"><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg></button>
   </nav>
+  <div id="moreMenu" class="menu" role="menu" aria-label="Más opciones" hidden>
+    <button role="menuitem" data-act="#bImport"><svg class="ic" aria-hidden="true"><use href="#i-open"/></svg>Abrir proyecto…</button>
+    <button role="menuitem" data-act="#bExport"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg>Guardar archivo</button>
+    <button role="menuitem" data-act="#bCloud"><svg class="ic" aria-hidden="true"><use href="#i-cloud"/></svg>Nube…</button>
+    <button role="menuitem" data-act="#bExportMenu"><svg class="ic" aria-hidden="true"><use href="#i-export"/></svg>Exportar PNG, PDF o video…</button>
+    <button role="menuitem" data-act="#sysImport"><svg class="ic" aria-hidden="true"><use href="#i-system"/></svg>Cargar sistemas…</button>
+    <button role="menuitem" data-act="#sysExport"><svg class="ic" aria-hidden="true"><use href="#i-system"/></svg>Exportar mis sistemas</button>
+    <hr>
+    <button role="menuitem" data-act="#sDup"><svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg>Duplicar slide</button>
+    <button role="menuitem" data-act="#sUp"><svg class="ic" aria-hidden="true"><use href="#i-prev"/></svg>Mover slide antes</button>
+    <button role="menuitem" data-act="#sDown"><svg class="ic" aria-hidden="true"><use href="#i-next"/></svg>Mover slide después</button>
+    <button role="menuitem" data-act="#sDel"><svg class="ic" aria-hidden="true"><use href="#i-erase"/></svg>Eliminar slide</button>
+    <hr>
+    <button role="menuitem" data-act="#bTheme" id="mTheme"><svg class="ic" aria-hidden="true"><use href="#i-theme"/></svg><span>Tema</span></button>
+    <button role="menuitem" data-act="#bHelp"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>Ayuda y atajos</button>
+  </div>
   <input type="file" id="fileIn" accept=".json,application/json" hidden>
 </header>
 
@@ -51,75 +114,67 @@ window.APP_VERSION = '11';
   <aside id="left" aria-label="Slides">
     <div id="slideList" role="listbox" aria-label="Lista de slides"></div>
     <div class="slideBtns">
-      <button id="sAdd" class="primary" title="Nuevo slide (continúa desde el último paso)">+ <span class="t">Nuevo slide</span></button>
-      <button id="sDup" title="Duplicar slide">⧉ <span class="t">Duplicar</span></button>
-      <button id="sDel" title="Eliminar slide">✕ <span class="t">Eliminar</span></button>
-      <button id="sUp" title="Subir slide">▲ <span class="t">Subir</span></button>
-      <button id="sDown" title="Bajar slide">▼ <span class="t">Bajar</span></button>
+      <button id="sAdd" class="primary" title="Nuevo slide (continúa desde el último paso)" aria-label="Nuevo slide"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><span class="t">Nuevo slide</span></button>
+      <button id="sDup" class="ib" title="Duplicar slide" aria-label="Duplicar slide"><svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg></button>
+      <button id="sUp" class="ib" title="Subir slide (Alt+↑)" aria-label="Subir slide"><svg class="ic" aria-hidden="true"><use href="#i-up"/></svg></button>
+      <button id="sDown" class="ib" title="Bajar slide (Alt+↓)" aria-label="Bajar slide"><svg class="ic" aria-hidden="true"><use href="#i-down"/></svg></button>
+      <button id="sDel" class="ib" title="Eliminar slide" aria-label="Eliminar slide"><svg class="ic" aria-hidden="true"><use href="#i-erase"/></svg></button>
     </div>
   </aside>
 
   <section id="center" aria-label="Editor de cancha">
     <div class="toolbar" id="tools" role="toolbar" aria-label="Herramientas">
-      <button data-tool="move" title="Mover y seleccionar (V)">✋ <span class="t">Mover</span> <kbd>V</kbd></button>
-      <button data-tool="link" title="Conectar jugadoras (C)">🔗 <span class="t">Conectar</span> <kbd>C</kbd></button>
-      <button data-tool="home" title="Agregar jugadora propia (P)"><span class="dot" id="dHome"></span> <span class="t">+ Propia</span> <kbd>P</kbd></button>
-      <button data-tool="away" title="Agregar rival (R)"><span class="dot" id="dAway"></span> <span class="t">+ Rival</span> <kbd>R</kbd></button>
-      <button data-tool="erase" title="Borrar (X)">🗑 <span class="t">Borrar</span> <kbd>X</kbd></button>
-      <div class="div" aria-hidden="true"></div>
-      <button data-tool="arrow" title="Flecha libre (A)">➚ <span class="t">Flecha</span> <kbd>A</kbd></button>
-      <button data-tool="zone" title="Zona (Z)">▭ <span class="t">Zona</span> <kbd>Z</kbd></button>
-      <button data-tool="text" title="Texto sobre la cancha (T)">T <span class="t">Texto</span> <kbd>T</kbd></button>
-      <button data-tool="pan" title="Mano: desplazar la vista (H o mantener Espacio)">✥ <span class="t">Mano</span> <kbd>H</kbd></button>
-      <div class="div" aria-hidden="true"></div>
-      <button id="bBall" title="Agregar o quitar la bocha (B)">⚫ Bocha</button>
-      <div class="sp"></div>
-      <label class="chk sm" title="Mostrar el recorrido completo de todos los pasos"><input type="checkbox" id="tPaths"> Recorrido</label>
-      <div class="zoom" role="group" aria-label="Zoom">
-        <button id="zOut" title="Alejar (−)" aria-label="Alejar">−</button>
+      <button data-tool="move" title="Mover y seleccionar (V)" aria-label="Mover y seleccionar"><svg class="ic" aria-hidden="true"><use href="#i-move"/></svg><span class="t">Mover</span></button>
+      <button data-tool="link" title="Conectar jugadoras (C)" aria-label="Conectar jugadoras"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg><span class="t">Conectar</span></button>
+      <button data-tool="home" title="Agregar jugadora propia (P)" aria-label="Agregar jugadora propia"><span class="dot" id="dHome" aria-hidden="true"></span><span class="t">Propia</span></button>
+      <button data-tool="away" title="Agregar rival (R)" aria-label="Agregar rival"><span class="dot" id="dAway" aria-hidden="true"></span><span class="t">Rival</span></button>
+      <button id="bBall" title="Agregar o quitar la bocha (B)" aria-label="Agregar bocha" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="#i-ball"/></svg><span class="t">Bocha</span></button>
+      <span class="div" aria-hidden="true"></span>
+      <button data-tool="arrow" title="Flecha libre (A)" aria-label="Flecha libre"><svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg><span class="t">Flecha</span></button>
+      <button data-tool="zone" title="Zona (Z)" aria-label="Zona"><svg class="ic" aria-hidden="true"><use href="#i-zone"/></svg><span class="t">Zona</span></button>
+      <button data-tool="text" title="Texto sobre la cancha (T)" aria-label="Texto sobre la cancha"><svg class="ic" aria-hidden="true"><use href="#i-text"/></svg><span class="t">Texto</span></button>
+      <button data-tool="erase" title="Borrar (X)" aria-label="Borrar"><svg class="ic" aria-hidden="true"><use href="#i-erase"/></svg><span class="t">Borrar</span></button>
+      <button data-tool="pan" class="desk" title="Mano: desplazar la vista (H o mantener Espacio)" aria-label="Mano: desplazar la vista"><svg class="ic" aria-hidden="true"><use href="#i-pan"/></svg><span class="t">Mano</span></button>
+    </div>
+    <div id="cvWrap">
+      <canvas id="cv" tabindex="0" role="application" aria-label="Cancha de hockey editable. Usá las herramientas de la barra; flechas del teclado mueven la selección."></canvas>
+      <div id="hint" aria-live="polite"></div>
+      <div class="cvctl" role="group" aria-label="Vista">
+        <label class="tog" title="Mostrar el recorrido completo de todos los pasos"><input type="checkbox" id="tPaths"><svg class="ic" aria-hidden="true"><use href="#i-route"/></svg><span class="sr">Recorrido</span></label>
+        <button id="zOut" class="desk" title="Alejar (−)" aria-label="Alejar"><svg class="ic" aria-hidden="true"><use href="#i-minus"/></svg></button>
         <button id="zFit" title="Ajustar a la cancha (0)" aria-label="Ajustar zoom">100%</button>
-        <button id="zIn" title="Acercar (+)" aria-label="Acercar">+</button>
+        <button id="zIn" class="desk" title="Acercar (+)" aria-label="Acercar"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></button>
       </div>
     </div>
-    <div id="cvWrap"><canvas id="cv" tabindex="0" role="application" aria-label="Cancha de hockey editable. Usá las herramientas de la barra; flechas del teclado mueven la selección."></canvas><div id="hint" aria-live="polite"></div></div>
     <div class="steps" id="steps" role="group" aria-label="Pasos de la animación"></div>
   </section>
 
   <aside id="right" aria-label="Propiedades">
-    <div class="sec-t">Textos del slide</div>
-    <div class="field"><label for="fKicker">Antetítulo</label><input type="text" id="fKicker" data-k="kicker" placeholder="ATRÁS"></div>
-    <div class="field"><label for="fTitle">Título</label><input type="text" id="fTitle" data-k="title" placeholder="LA LÍNEA DE 4"></div>
-    <div class="field"><label for="fAccent">Palabra en rojo</label><input type="text" id="fAccent" data-k="accent" placeholder="4"></div>
-    <div class="field"><label for="fSubtitle">Bajada</label><input type="text" id="fSubtitle" data-k="subtitle" placeholder="SE MUEVE JUNTA HACIA LA BOCHA"></div>
+    <div class="sheetbar"><span class="grab" aria-hidden="true"></span><button id="bPropsClose" class="ib" aria-label="Cerrar propiedades" title="Cerrar"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
 
-    <div class="sec-t">Notas del orador</div>
-    <div class="field"><label for="fNotes" class="sr">Notas del orador</label><textarea id="fNotes" data-k="notes" rows="3" placeholder="Lo que querés decir en este slide (no aparece en el video)"></textarea></div>
-
-    <div class="sec-t">Animación 3D</div>
-    <div class="field"><label for="fMove">Duración del movimiento: <span id="mvV"></span></label><input type="range" id="fMove" data-k="moveDur" min="0.6" max="4" step="0.1"></div>
-    <div class="field"><label for="fHold">Pausa entre pasos: <span id="hdV"></span></label><input type="range" id="fHold" data-k="hold" min="0" max="3" step="0.1"></div>
-
-    <div id="selEnt" hidden>
-      <div class="sec-t" id="selEntT">Jugadora seleccionada</div>
-      <div class="field" id="eLabelF"><label for="eLabel">Etiqueta</label><input type="text" id="eLabel" maxlength="4"></div>
-      <div class="field" id="eTeamF"><label for="eTeam">Equipo</label>
-        <select id="eTeam"><option value="home">Propio</option><option value="away">Rival</option></select></div>
+    <section id="selEnt" class="psec sel" hidden>
+      <h3 class="sec-t" id="selEntT">Jugadora seleccionada</h3>
+      <div class="row">
+        <div class="field" id="eLabelF"><label for="eLabel">Etiqueta</label><input type="text" id="eLabel" maxlength="4"></div>
+        <div class="field" id="eTeamF"><label for="eTeam">Equipo</label>
+          <select id="eTeam"><option value="home">Propio</option><option value="away">Rival</option></select></div>
+      </div>
       <label class="chk field" id="eHlF"><input type="checkbox" id="eHl"> Destacar (anillo amarillo)</label>
-      <button id="eDel" class="wide">Eliminar</button>
-    </div>
+      <button id="eDel" class="wide subtle">Eliminar</button>
+    </section>
 
-    <div id="selShape" hidden>
-      <div class="sec-t" id="selShapeT">Anotación</div>
+    <section id="selShape" class="psec sel" hidden>
+      <h3 class="sec-t" id="selShapeT">Anotación</h3>
       <div class="field" id="shTextF"><label for="shText">Texto</label><input type="text" id="shText" maxlength="40"></div>
-      <div class="field" id="shSizeF"><label for="shSize">Tamaño: <span id="shSizeV"></span></label><input type="range" id="shSize" min="1" max="8" step="0.2"></div>
+      <div class="field" id="shSizeF"><label for="shSize">Tamaño <span class="val" id="shSizeV"></span></label><input type="range" id="shSize" min="1" max="8" step="0.2"></div>
       <div class="field"><span class="lbl" id="shColL">Color</span>
         <div class="swatches" id="shColors" role="radiogroup" aria-labelledby="shColL"></div></div>
       <label class="chk field" id="shDashF"><input type="checkbox" id="shDash"> Línea punteada</label>
-      <button id="shDel" class="wide">Eliminar</button>
-    </div>
+      <button id="shDel" class="wide subtle">Eliminar</button>
+    </section>
 
-    <div id="selMulti" hidden>
-      <div class="sec-t" id="selMultiT">Selección</div>
+    <section id="selMulti" class="psec sel" hidden>
+      <h3 class="sec-t" id="selMultiT">Selección</h3>
       <div class="grid2">
         <button id="mHl">Destacar</button>
         <button id="mNoHl">Quitar destacado</button>
@@ -128,51 +183,94 @@ window.APP_VERSION = '11';
         <button id="mLink">Unir en cadena</button>
         <button id="mDel">Eliminar</button>
       </div>
-    </div>
+    </section>
 
-    <div class="sec-t">Formaciones</div>
-    <div class="field"><label for="fSel">Formación</label><select id="fSel"></select></div>
-    <div class="grid2">
-      <button id="fHome">Poner en propio</button>
-      <button id="fAway">Poner en rival</button>
-      <button id="fNoAway">Quitar rivales</button>
-      <button id="fNoHl">Sin destacadas</button>
-      <button id="fNoLinks">Borrar conexiones</button>
-      <button id="fAutoLinks">Conexiones automáticas</button>
-      <button id="fNoShapes" class="span2">Borrar anotaciones</button>
-    </div>
+    <details class="psec" data-sec="texts" open>
+      <summary class="sec-t">Textos del slide</summary>
+      <div class="field"><label for="fKicker">Antetítulo</label><input type="text" id="fKicker" data-k="kicker" placeholder="ATRÁS"></div>
+      <div class="field"><label for="fTitle">Título</label><input type="text" id="fTitle" data-k="title" placeholder="LA LÍNEA DE 4"></div>
+      <div class="field"><label for="fAccent">Palabra en rojo</label><input type="text" id="fAccent" data-k="accent" placeholder="4"></div>
+      <div class="field"><label for="fSubtitle">Bajada</label><input type="text" id="fSubtitle" data-k="subtitle" placeholder="SE MUEVE JUNTA HACIA LA BOCHA"></div>
+    </details>
 
-    <div class="sec-t">Proyecto</div>
-    <div class="field"><label for="pHandle">Cuenta / club (arriba a la izquierda)</label><input type="text" id="pHandle" placeholder="@MICLUB"></div>
-    <label class="chk field" title="Antetítulo, título, bajada y @cuenta sobre la imagen 3D, el video y los PNG"><input type="checkbox" id="pShowTexts"> Mostrar textos en la presentación</label>
-    <label class="chk field" title="Las líneas entre jugadoras siguen en el editor; esto las muestra también en el visor 3D, el video, los PNG y el PDF"><input type="checkbox" id="pShowLinks"> Mostrar conexiones en la presentación</label>
-    <div class="row field">
-      <div><label class="muted" for="pHome">Color propio</label><input type="color" id="pHome"></div>
-      <div><label class="muted" for="pAway">Color rival</label><input type="color" id="pAway"></div>
-    </div>
-    <button id="pNew" class="wide">Empezar proyecto nuevo</button>
-    <p class="muted">Se guarda solo en este navegador. Usá “Guardar archivo” para tener una copia.</p>
+    <details class="psec" data-sec="anim" open>
+      <summary class="sec-t">Animación 3D</summary>
+      <div class="field"><label for="fMove">Movimiento <span class="val" id="mvV"></span></label><input type="range" id="fMove" data-k="moveDur" min="0.6" max="4" step="0.1"></div>
+      <div class="field"><label for="fHold">Pausa entre pasos <span class="val" id="hdV"></span></label><input type="range" id="fHold" data-k="hold" min="0" max="3" step="0.1"></div>
+    </details>
+
+    <details class="psec" data-sec="notes">
+      <summary class="sec-t">Notas del orador</summary>
+      <div class="field"><label for="fNotes" class="sr">Notas del orador</label><textarea id="fNotes" data-k="notes" rows="3" placeholder="Lo que querés decir en este slide (no aparece en el video)"></textarea></div>
+    </details>
+
+    <details class="psec" data-sec="systems" id="secSys" open>
+      <summary class="sec-t">Sistemas</summary>
+      <div class="seg light sysTeam" role="radiogroup" aria-label="Aplicar a">
+        <span class="lbl">Aplicar a</span>
+        <label><input type="radio" name="sysTeam" value="home" checked> Propio</label>
+        <label><input type="radio" name="sysTeam" value="away"> Rival</label>
+      </div>
+      <div id="sysGrid" class="sysgrid" role="group" aria-label="Sistemas: tocá uno para aplicarlo"></div>
+      <button id="sysSave" class="wide subtle"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Guardar como sistema</button>
+      <div class="sysfoot">
+        <button id="sysImport" class="subtle"><svg class="ic" aria-hidden="true"><use href="#i-open"/></svg>Cargar sistemas</button>
+        <button id="sysExport" class="link" title="Descargar tus sistemas en un .json para compartirlos">Exportar</button>
+        <input type="file" id="sysFile" accept=".json,application/json" hidden>
+      </div>
+    </details>
+
+    <details class="psec" data-sec="adv">
+      <summary class="sec-t">Avanzado</summary>
+      <div class="grid2">
+        <button id="fAutoLinks" class="span2" title="Agrega las conexiones del sistema de las jugadoras propias">Conexiones automáticas</button>
+        <button id="fNoLinks">Borrar conexiones</button>
+        <button id="fNoShapes">Borrar anotaciones</button>
+        <button id="fNoAway">Quitar rivales</button>
+        <button id="fNoHl">Sin destacadas</button>
+      </div>
+    </details>
+
+    <details class="psec" data-sec="project">
+      <summary class="sec-t">Proyecto</summary>
+      <div class="field"><label for="pHandle">Cuenta / club</label><input type="text" id="pHandle" placeholder="@MICLUB"></div>
+      <div class="row field">
+        <div><label class="lbl" for="pHome">Color propio</label><input type="color" id="pHome"></div>
+        <div><label class="lbl" for="pAway">Color rival</label><input type="color" id="pAway"></div>
+      </div>
+      <label class="chk field" title="Antetítulo, título, bajada y @cuenta sobre la imagen 3D, el video y los PNG"><input type="checkbox" id="pShowTexts"> Textos en la presentación</label>
+      <label class="chk field" title="Las líneas entre jugadoras siguen en el editor; esto las muestra también en el visor 3D, el video, los PNG y el PDF"><input type="checkbox" id="pShowLinks"> Conexiones en la presentación</label>
+      <button id="pNew" class="wide subtle">Empezar proyecto nuevo</button>
+    </details>
   </aside>
 </main>
 <div id="scrim" hidden></div>
 
 <div id="viewer" class="hidden" role="dialog" aria-modal="true" aria-label="Visor 3D">
   <div class="vbar">
-    <button id="vClose" title="Volver al editor (Esc)">✕ Editor</button>
-    <div class="seg" role="group" aria-label="Formato"><button data-fmt="v" class="on" aria-pressed="true">Vertical 9:16</button><button data-fmt="h" aria-pressed="false">Horizontal 16:9</button></div>
-    <button id="vPrev" title="Slide anterior (←)" aria-label="Slide anterior">◀</button><span id="vInfo" aria-live="polite">1 / 1</span><button id="vNext" title="Slide siguiente (→)" aria-label="Slide siguiente">▶</button>
-    <button id="vPlay" title="Pausa / reproducir (K)">⏸ Pausa</button>
-    <button id="vReplay" title="Repetir slide (R)">↺ Repetir</button>
-    <label title="Al terminar un slide pasa solo al siguiente"><input type="checkbox" id="vAll" checked> Seguir con el siguiente</label>
-    <button id="vNotesB" title="Notas del orador (N)" aria-pressed="false">Notas</button>
+    <button id="vClose" title="Volver al editor (Esc)" aria-label="Volver al editor"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg><span class="t">Editor</span></button>
+    <div class="seg" role="group" aria-label="Formato">
+      <button data-fmt="v" class="on" aria-pressed="true" title="Vertical 9:16" aria-label="Vertical 9:16"><svg class="ic" aria-hidden="true"><use href="#i-portrait"/></svg><span class="t">9:16</span></button>
+      <button data-fmt="h" aria-pressed="false" title="Horizontal 16:9" aria-label="Horizontal 16:9"><svg class="ic" aria-hidden="true"><use href="#i-landscape"/></svg><span class="t">16:9</span></button>
+    </div>
+    <label class="vchk" title="Al terminar un slide pasa solo al siguiente"><input type="checkbox" id="vAll" checked> <span>Seguir<span class="t"> con el siguiente</span></span></label>
     <div class="sp"></div>
     <span id="recBadge" role="status">● GRABANDO</span>
-    <button id="vPresent" title="Pantalla completa (F)">⛶ Presentar</button>
-    <button id="vExport" title="Exportar PNG o PDF">⇪ Exportar…</button>
-    <button id="vRec" class="primary">● Exportar video</button>
+    <button id="vNotesB" title="Notas del orador (N)" aria-label="Notas del orador" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="#i-notes"/></svg><span class="t">Notas</span></button>
+    <button id="vPresent" title="Pantalla completa (F)" aria-label="Pantalla completa"><svg class="ic" aria-hidden="true"><use href="#i-full"/></svg><span class="t">Presentar</span></button>
+    <button id="vExport" title="Exportar PNG o PDF" aria-label="Exportar PNG o PDF"><svg class="ic" aria-hidden="true"><use href="#i-export"/></svg><span class="t">Exportar</span></button>
+    <button id="vRec" class="primary" title="Exportar video" aria-label="Exportar video"><svg class="ic" aria-hidden="true"><use href="#i-rec"/></svg><span class="t">Video</span></button>
   </div>
   <div class="vstage"><canvas id="stage" role="img" aria-label="Animación 3D del slide"></canvas>
+    <div id="vFlash" aria-hidden="true"></div>
     <div id="vHint" class="vhint" aria-hidden="true">← → slides · Espacio pausa/sigue · Esc salir</div></div>
+  <div class="vctl" role="group" aria-label="Reproducción">
+    <button id="vReplay" class="ib" title="Repetir slide (R)" aria-label="Repetir slide"><svg class="ic" aria-hidden="true"><use href="#i-replay"/></svg></button>
+    <button id="vPrev" class="ib" title="Slide anterior (←)" aria-label="Slide anterior"><svg class="ic" aria-hidden="true"><use href="#i-prev"/></svg></button>
+    <button id="vPlay" class="play" title="Pausa / reproducir (K)"></button>
+    <button id="vNext" class="ib" title="Slide siguiente (→)" aria-label="Slide siguiente"><svg class="ic" aria-hidden="true"><use href="#i-next"/></svg></button>
+    <span id="vInfo" aria-live="polite">1 / 1</span>
+  </div>
   <div id="vNotes" hidden aria-live="polite"></div>
   <div id="vProg"><i></i></div>
 </div>
@@ -185,22 +283,31 @@ window.APP_VERSION = '11';
   </form>
 </dialog>
 
-<dialog id="dlgHelp" aria-labelledby="hlpT">
+<dialog id="dlgPrompt" aria-labelledby="prMsg">
   <form method="dialog">
-    <h2 id="hlpT">Atajos de teclado</h2>
+    <label id="prMsg" for="prIn" class="lbl"></label>
+    <input type="text" id="prIn" maxlength="60" autocomplete="off">
+    <div class="dlgBtns"><button type="button" class="dlgCancel">Cancelar</button><button value="ok" id="prOk" class="primary">Aceptar</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgHelp" aria-labelledby="hlpT" class="wide">
+  <form method="dialog">
+    <h2 id="hlpT">Ayuda y atajos</h2>
     <div class="cols">
       <table>
         <caption>Editor</caption>
         <tr><td><kbd>V</kbd></td><td>Mover / seleccionar</td></tr>
-        <tr><td><kbd>C</kbd></td><td>Conectar</td></tr>
+        <tr><td><kbd>C</kbd></td><td>Conectar (una y después otra; en el vacío corta)</td></tr>
         <tr><td><kbd>P</kbd> / <kbd>R</kbd></td><td>Agregar propia / rival</td></tr>
-        <tr><td><kbd>X</kbd></td><td>Borrar</td></tr>
+        <tr><td><kbd>X</kbd></td><td>Borrar (ficha, anotación o conexión)</td></tr>
         <tr><td><kbd>A</kbd> <kbd>Z</kbd> <kbd>T</kbd></td><td>Flecha, zona, texto</td></tr>
         <tr><td><kbd>H</kbd> o <kbd>Espacio</kbd>+arrastrar</td><td>Desplazar la vista</td></tr>
         <tr><td><kbd>B</kbd></td><td>Agregar / quitar bocha</td></tr>
         <tr><td>Rueda · <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></td><td>Zoom · ajustar</td></tr>
         <tr><td><kbd>,</kbd> <kbd>.</kbd> · <kbd>RePág</kbd> <kbd>AvPág</kbd> · <kbd>[</kbd> <kbd>]</kbd></td><td>Paso anterior / siguiente</td></tr>
         <tr><td><kbd>Shift</kbd>+clic · arrastrar</td><td>Selección múltiple · recuadro</td></tr>
+        <tr><td>Doble clic</td><td>Editar etiqueta o texto</td></tr>
         <tr><td>Flechas (<kbd>Shift</kbd> ×4)</td><td>Mover selección</td></tr>
         <tr><td><kbd>Supr</kbd> / <kbd>⌫</kbd></td><td>Eliminar selección</td></tr>
         <tr><td><kbd>Esc</kbd></td><td>Deseleccionar</td></tr>
@@ -229,7 +336,23 @@ window.APP_VERSION = '11';
         <tr><td><kbd>N</kbd></td><td>Notas del orador (también en pantalla completa)</td></tr>
         <tr><td><kbd>Esc</kbd></td><td>Salir</td></tr>
       </table>
+      <table>
+        <caption>Celular y tablet</caption>
+        <tr><td>Tocar</td><td>Seleccionar / usar la herramienta</td></tr>
+        <tr><td>Arrastrar</td><td>Mover fichas · recuadro en el vacío</td></tr>
+        <tr><td>Mantener apretado</td><td>Sumar o quitar de la selección (como <kbd>Shift</kbd>)</td></tr>
+        <tr><td>Doble toque</td><td>Editar etiqueta o texto</td></tr>
+        <tr><td>Pellizcar · dos dedos</td><td>Zoom · desplazar la vista</td></tr>
+        <tr><td>Visor: deslizar</td><td>Slide anterior / siguiente</td></tr>
+        <tr><td>Visor: tocar</td><td>Pausa / sigue</td></tr>
+      </table>
     </div>
+    <h3>Para tener en cuenta</h3>
+    <ul class="tips">
+      <li>Cada paso guarda las posiciones; en 3D se animan de un paso al siguiente. Con “Recorrido” se ven todas las carreras: flechas punteadas = carreras, línea continua = pase de la bocha.</li>
+      <li>El proyecto se guarda solo en este navegador. Usá “Nube” o “Guardar archivo” para tener una copia o pasarlo a otro equipo.</li>
+      <li>Sistemas: tocá uno para aplicarlo (⌘Z deshace). “Guardar como sistema” toma las posiciones de las propias en el paso actual. “Cargar sistemas” lee un <code>.json</code> de otro entrenador; “Exportar” descarga los tuyos.</li>
+    </ul>
     <div class="dlgBtns"><button value="close" class="primary">Cerrar</button></div>
   </form>
 </dialog>
@@ -246,10 +369,10 @@ window.APP_VERSION = '11';
     <h3>Imágenes y PDF</h3>
     <div class="grid2">
       <button type="button" id="xPngCur">PNG del slide actual</button>
-      <button type="button" id="xPngAll">PNG de todos los slides</button>
+      <button type="button" id="xPngAll">PNG de todos</button>
     </div>
-    <label class="chk field" style="margin-top:10px"><input type="checkbox" id="xNotes" checked> Incluir notas del orador en el PDF</label>
-    <button type="button" id="xPdf" class="wide">Exportar PDF de la presentación</button>
+    <label class="chk field top8"><input type="checkbox" id="xNotes" checked> Incluir notas del orador en el PDF</label>
+    <button type="button" id="xPdf" class="wide">Exportar PDF</button>
     <h3>Video</h3>
     <div class="row">
       <div class="field"><label for="xVType">Archivo</label><select id="xVType"></select></div>
@@ -259,13 +382,21 @@ window.APP_VERSION = '11';
     <div class="row">
       <div class="field"><label for="xVRes">Resolución</label>
         <select id="xVRes"><option value="1">1080p</option><option value="0.6667">720p</option></select></div>
-      <div class="field"><label for="xVFps">Cuadros por segundo</label>
+      <div class="field"><label for="xVFps">Cuadros/s</label>
         <select id="xVFps"><option value="30">30</option><option value="60">60</option></select></div>
     </div>
     <div class="field"><label for="xVRange">Qué grabar</label>
       <select id="xVRange"><option value="all">Toda la presentación</option><option value="cur">Solo el slide actual</option></select></div>
-    <button type="button" id="xVideo" class="primary wide">● Grabar video</button>
-    <p class="muted">El video se graba en tiempo real mientras se reproduce: no cambies de pestaña hasta que termine.</p>
+    <button type="button" id="xVideo" class="primary wide">Grabar video</button>
+    <p class="muted">Se graba en tiempo real: no cambies de pestaña hasta que termine.</p>
+    <div class="dlgBtns"><button value="close">Cerrar</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgCloud" aria-labelledby="clT">
+  <form method="dialog">
+    <h2 id="clT">Planteos en la nube</h2>
+    <div id="clBody"></div>
     <div class="dlgBtns"><button value="close">Cerrar</button></div>
   </form>
 </dialog>
